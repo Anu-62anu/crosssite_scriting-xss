@@ -1,3 +1,5 @@
+const URL_VALUE_PATTERN = /^(?:https?:\/\/|\/\/|www\.)/i;
+
 // Security Pattern Detection
 const SQL_INJECTION_PATTERNS = [
   /(\bOR\b|\bAND\b)\s+[\w\d]+\s*=\s*[\w\d]+/i,
@@ -135,4 +137,78 @@ export function sanitizeAbsoluteUrl(input?: string | null): string | null {
 export function sanitizeUrlOrigin(input?: string | null): string | null {
   const sanitized = sanitizeAbsoluteUrl(input);
   return sanitized ? new URL(sanitized).origin : null;
+}
+
+const splitKeyTokens = (key: string): string[] =>
+  String(key)
+    .split(/[^a-zA-Z0-9]+/)
+    .flatMap((segment) => segment.split(/(?=[A-Z])/))
+    .map((segment) => segment.toLowerCase())
+    .filter(Boolean);
+
+const keySuggestsUrl = (keyHint: string): boolean => {
+  if (!keyHint) return false;
+  const tokens = splitKeyTokens(keyHint);
+  return tokens.some((token) => ['url', 'href', 'link'].includes(token));
+};
+
+const isDangerousUrl = (value: string): boolean => {
+  const lower = value.trim().toLowerCase();
+  return (
+    Array.from(DANGEROUS_PROTOCOLS).some((proto) => lower.startsWith(proto)) ||
+    hasDangerousPattern(value)
+  );
+};
+
+const shouldEncodeString = (keyHint: string, value: string): boolean => {
+  if (typeof value !== 'string') return false;
+  if (isDangerousUrl(value)) return false; 
+  if (keySuggestsUrl(keyHint)) return true;
+  return URL_VALUE_PATTERN.test(value.trim());
+};
+
+const encodeUrlString = (value: string): string => {
+  try {
+    return encodeURI(decodeURI(value));
+  } catch {
+    try {
+      return encodeURI(value);
+    } catch {
+      return value;
+    }
+  }
+};
+
+export function encodeUrlsDeep(value: any, seen: WeakSet<object> = new WeakSet(), keyHint: string = ''): any {
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === 'string') {
+    if (isDangerousUrl(value)) {
+      return '[unsafe-url-removed]';
+    }
+    return shouldEncodeString(keyHint, value) ? encodeUrlString(value) : value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => encodeUrlsDeep(item, seen, keyHint));
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) return value;
+    seen.add(value);
+
+    const encodedObject = Object.entries(value).reduce((acc, [key, val]) => {
+      acc[key] = encodeUrlsDeep(val, seen, key);
+      return acc;
+    }, {} as Record<string, any>);
+
+    seen.delete(value);
+    return encodedObject;
+  }
+
+  return value;
 }
