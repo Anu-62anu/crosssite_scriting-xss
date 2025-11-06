@@ -1,5 +1,5 @@
 export interface CspOptions {
-  [key: string]: string | string[] | undefined; // accepts single or multiple
+  [key: string]: string | string[] | undefined;
 }
 
 const BASE_DIRECTIVES: Array<[string, string[]]> = [
